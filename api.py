@@ -65,23 +65,19 @@ async def process_summoners(summoner_names):
 
             matches = await get_match_history(puuid, session, headers)
             champ_stats = {}
-
-            for match in matches:
-try:
-    participants = match["info"]["participants"]
-    player_data = next(p for p in participants if p["puuid"] == puuid)
-    champ_name = player_data["championName"]
-    win = player_data["win"]
-    champ_stats.setdefault(champ_name, {"games": 0, "wins": 0})
-    champ_stats[champ_name]["games"] += 1
-    champ_stats[champ_name]["wins"] += int(win)
-except Exception as e:
-    print(f"[Erreur analyse match] {e}")
-    print(f"[Match brut] {match}")
-    continue
-
-
-
+for match in matches:
+    try:
+        participants = match["info"]["participants"]
+        player_data = next(p for p in participants if p["puuid"] == puuid)
+        champ_name = player_data["championName"]
+        win = player_data["win"]
+        champ_stats.setdefault(champ_name, {"games": 0, "wins": 0})
+        champ_stats[champ_name]["games"] += 1
+        champ_stats[champ_name]["wins"] += int(win)
+    except Exception as e:
+        print(f"[Erreur analyse match] {e}")
+        print(f"[Match brut] {match}")
+        continue
             stats_list = []
             for champ, stats in champ_stats.items():
                 winrate = int((stats["wins"] / stats["games"]) * 100)
