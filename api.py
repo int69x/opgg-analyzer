@@ -94,3 +94,10 @@ async def process_summoners(summoner_names):
 # Lancer l'app en local ou sur Railway
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
+
+from flask import send_from_directory
+
+@app.route("/")
+def index():
+    return send_from_directory('.', 'index.html')
+
