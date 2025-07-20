@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Analyse OP.GG</title>
+  <style>
+    body { font-family: sans-serif; padding:2rem; max-width:700px; margin:auto; }
+    input, button { padding: .5rem; font-size:1rem; width:100%; margin: .5rem 0; }
+    pre { background:#f0f0f0; padding:1rem; }
+  </style>
+</head>
+<body>
+  <h1>Analyse OP.GG (Team ennemie)</h1>
+  <input id="urlInput" type="text" placeholder="Collez le lien OP.GG multisearch ici">
+  <button onclick="analyser()">Analyser</button>
+  <div id="result" style="margin-top:2rem;"></div>
+  <script>
+    async function analyser(){
+      const r = document.getElementById("result");
+      const url = document.getElementById("urlInput").value;
+      r.innerHTML = "⏳ Analyse en cours...";
+      const res = await fetch('/analyser', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({url})
+      });
+      const data = await res.json();
+      if(data.error){ r.innerHTML = "❌ "+data.error; return; }
+      let html = "<h2>Résultats</h2>";
+      data.players.forEach(p=>{
+        html += `<h3>${p.role} – ${p.summoner}</h3><ul>`;
+        p.champions.forEach(c=> html += `<li>${c.name} (${c.games} games, ${c.winrate}%)</li>`);
+        html += "</ul>";
+      });
+      r.innerHTML = html;
+    }
+  </script>
+</body>
+</html>
