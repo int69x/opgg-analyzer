@@ -1,93 +1,96 @@
-from flask import Flask, request, jsonify, send_from_directory
-import aiohttp, asyncio
-from bs4 import BeautifulSoup
-from urllib.parse import unquote, urlparse, parse_qs
-from collections import Counter
+import os
+import aiohttp
+import asyncio
+from flask import Flask, request, jsonify
+from dotenv import load_dotenv
+
+# Charger les variables depuis le fichier .env
+load_dotenv()
+
+RIOT_API_KEY = os.getenv("RIOT_API_KEY")
+REGION = "europe"    # Pour EUW, EUNE => "europe", NA => "americas"
+PLATFORM = "euw1"    # "euw1" pour Europe Ouest
 
 app = Flask(__name__)
 
-@app.route("/")
-def root():
-    return send_from_directory('.', 'index.html')
+# Fonction utilitaire pour requêtes GET
+async def fetch_json(session, url, headers):
+    async with session.get(url, headers=headers) as response:
+        return await response.json()
 
+# Obtenir les infos d'un invocateur
+async def get_summoner_data(summoner_name, session, headers):
+    url = f"https://{PLATFORM}.api.riotgames.com/lol/summoner/v4/summoners/by-name/{summoner_name}"
+    return await fetch_json(session, url, headers)
+
+# Obtenir l'historique de match via PUUID
+async def get_match_history(puuid, session, headers):
+    match_ids_url = f"https://{REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?start=0&count=10"
+    match_ids = await fetch_json(session, match_ids_url, headers)
+    
+    match_data = []
+    for match_id in match_ids:
+        url = f"https://{REGION}.api.riotgames.com/lol/match/v5/matches/{match_id}"
+        data = await fetch_json(session, url, headers)
+        match_data.append(data)
+    return match_data
+
+# Endpoint principal
 @app.route("/analyser", methods=["POST"])
 def analyser():
     data = request.json
-    input_text = data.get("url", "").strip()
-    summoners = extract_summoners(input_text)
-    if not summoners or len(summoners) < 1:
-        return jsonify({"error": "Aucun pseudo valide détecté."})
+    names = data.get("summoners", [])
+    if not names or not isinstance(names, list):
+        return jsonify({"error": "Liste de noms invalide."}), 400
 
-    summoners = summoners[:5]
-    result = asyncio.run(collect_data(summoners))
+    result = asyncio.run(process_summoners(names))
     return jsonify(result)
 
-def extract_summoners(text):
-    summoners = []
-    if "op.gg" in text:
-        parsed_url = urlparse(text)
-        query = parse_qs(parsed_url.query)
-        summoner_param = query.get("summoners", [""])[0]
-        decoded = unquote(summoner_param)
-        raw_names = decoded.replace("+", "").split(",")
-        summoners = [s.strip() for s in raw_names if s.strip()]
-    else:
-        raw_names = text.replace("+", "").split(",")
-        summoners = [s.strip() for s in raw_names if s.strip()]
-    return summoners
+# Traitement de tous les invocateurs
+async def process_summoners(summoner_names):
+    headers = {"X-Riot-Token": RIOT_API_KEY}
+    async with aiohttp.ClientSession() as session:
+        team_data = []
 
-async def collect_data(summoner_names):
-    order = ["TOP", "JUNGLE", "MID", "ADC", "SUPPORT"]
-    players = []
+        for name in summoner_names[:5]:  # max 5 joueurs
+            summoner = await get_summoner_data(name, session, headers)
+            puuid = summoner.get("puuid")
+            if not puuid:
+                continue
 
-    for summoner in summoner_names:
-        encoded = summoner.replace("#", "%23").replace(" ", "%20")
-        url = f"https://www.op.gg/summoners/euw/{encoded}"
+            matches = await get_match_history(puuid, session, headers)
+            champ_stats = {}
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as resp:
-                html = await resp.text()
+            for match in matches:
+                try:
+                    participants = match["info"]["participants"]
+                    player_data = next(p for p in participants if p["puuid"] == puuid)
+                    champ_name = player_data["championName"]
+                    win = player_data["win"]
+                    champ_stats.setdefault(champ_name, {"games": 0, "wins": 0})
+                    champ_stats[champ_name]["games"] += 1
+                    champ_stats[champ_name]["wins"] += int(win)
+                except:
+                    continue
 
-        soup = BeautifulSoup(html, "html.parser")
-
-        champ_rows = soup.select(".css-1wvykus")  # nouveau sélecteur 2025
-        if not champ_rows:
-            continue
-
-        cdata, roles = [], Counter()
-
-        for champ in champ_rows[:5]:
-            name_tag = champ.select_one(".champion-name")
-            games_tag = champ.select_one(".played")
-            win_tag = champ.select_one(".winratio")
-            role_tag = champ.select_one(".position")
-
-            if name_tag and games_tag and win_tag:
-                name = name_tag.text.strip()
-                games = int(games_tag.text.strip().split()[0])
-                winrate = int(win_tag.text.strip().replace("%", ""))
-                role = role_tag.text.strip().upper() if role_tag else "UNKNOWN"
-                roles[role] += 1
-                cdata.append({
-                    "name": name,
-                    "games": games,
+            stats_list = []
+            for champ, stats in champ_stats.items():
+                winrate = int((stats["wins"] / stats["games"]) * 100)
+                stats_list.append({
+                    "champion": champ,
+                    "games": stats["games"],
                     "winrate": winrate
                 })
 
-        if not cdata:
-            continue
+            stats_list = sorted(stats_list, key=lambda x: (x["games"], x["winrate"]), reverse=True)[:3]
 
-        main_role = roles.most_common(1)[0][0] if roles else "UNKNOWN"
-        top3 = sorted(cdata, key=lambda x: (x["games"], x["winrate"]), reverse=True)[:3]
-        players.append({
-            "summoner": summoner,
-            "role": main_role,
-            "champions": top3
-        })
+            team_data.append({
+                "summoner": name,
+                "champions": stats_list
+            })
 
-    players = sorted(players, key=lambda p: order.index(p["role"]) if p["role"] in order else 99)
-    return {"players": players}
+        return {"players": team_data}
 
+# Lancer l'app en local ou sur Railway
 if __name__ == "__main__":
-    import os
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
