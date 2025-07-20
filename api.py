@@ -14,7 +14,6 @@ def root():
 def analyser():
     data = request.json
     input_text = data.get("url", "").strip()
-
     summoners = extract_summoners(input_text)
     if not summoners or len(summoners) < 1:
         return jsonify({"error": "Aucun pseudo valide détecté."})
@@ -51,13 +50,13 @@ async def collect_data(summoner_names):
 
         soup = BeautifulSoup(html, "html.parser")
 
-        champ_rows = soup.select(".css-1kg0n6n .css-1wvykus")  # Section champions joués
+        champ_rows = soup.select(".css-1wvykus")  # nouveau sélecteur 2025
         if not champ_rows:
             continue
 
         cdata, roles = [], Counter()
 
-        for champ in champ_rows[:5]:  # top 5 champs
+        for champ in champ_rows[:5]:
             name_tag = champ.select_one(".champion-name")
             games_tag = champ.select_one(".played")
             win_tag = champ.select_one(".winratio")
@@ -69,7 +68,6 @@ async def collect_data(summoner_names):
                 winrate = int(win_tag.text.strip().replace("%", ""))
                 role = role_tag.text.strip().upper() if role_tag else "UNKNOWN"
                 roles[role] += 1
-
                 cdata.append({
                     "name": name,
                     "games": games,
@@ -81,7 +79,6 @@ async def collect_data(summoner_names):
 
         main_role = roles.most_common(1)[0][0] if roles else "UNKNOWN"
         top3 = sorted(cdata, key=lambda x: (x["games"], x["winrate"]), reverse=True)[:3]
-
         players.append({
             "summoner": summoner,
             "role": main_role,
@@ -90,6 +87,7 @@ async def collect_data(summoner_names):
 
     players = sorted(players, key=lambda p: order.index(p["role"]) if p["role"] in order else 99)
     return {"players": players}
+
 if __name__ == "__main__":
     import os
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
