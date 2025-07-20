@@ -15,20 +15,17 @@ def analyser():
     data = request.json
     input_text = data.get("url", "").strip()
 
-    # Extraire les pseudos depuis un lien OP.GG MultiSearch ou texte brut
     summoners = extract_summoners(input_text)
     if not summoners or len(summoners) < 1:
         return jsonify({"error": "Aucun pseudo valide détecté."})
 
-    summoners = summoners[:5]  # On prend seulement les 5 premiers
+    summoners = summoners[:5]
     result = asyncio.run(collect_data(summoners))
     return jsonify(result)
 
 def extract_summoners(text):
     summoners = []
-
     if "op.gg" in text:
-        # Extraire paramètres d’un lien OP.GG
         parsed_url = urlparse(text)
         query = parse_qs(parsed_url.query)
         summoner_param = query.get("summoners", [""])[0]
@@ -36,10 +33,8 @@ def extract_summoners(text):
         raw_names = decoded.replace("+", "").split(",")
         summoners = [s.strip() for s in raw_names if s.strip()]
     else:
-        # Entrée manuelle brute : Joueur1#EUW, Joueur2#EUW
         raw_names = text.replace("+", "").split(",")
         summoners = [s.strip() for s in raw_names if s.strip()]
-
     return summoners
 
 async def collect_data(summoner_names):
@@ -47,40 +42,39 @@ async def collect_data(summoner_names):
     players = []
 
     for summoner in summoner_names:
-        encoded_name = summoner.replace('#', '%23').replace(' ', '%20')
-        url = f"https://www.op.gg/summoners/euw/{encoded_name}"
+        encoded = summoner.replace("#", "%23").replace(" ", "%20")
+        url = f"https://www.op.gg/summoners/euw/{encoded}"
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as resp:
                 html = await resp.text()
 
         soup = BeautifulSoup(html, "html.parser")
-        champs = soup.select("div.most-champions > ul > li")[:5]
+
+        champ_rows = soup.select(".css-1kg0n6n .css-1wvykus")  # Section champions joués
+        if not champ_rows:
+            continue
+
         cdata, roles = [], Counter()
 
-        for champ in champs:
-            name_tag = champ.select_one(".name")
-            games_tag = champ.select_one(".count")
-            winrate_tag = champ.select_one(".win")
-
-            if not name_tag or not games_tag or not winrate_tag:
-                continue
-
-            name = name_tag.text.strip()
-            games = int(games_tag.text.strip().split()[0])
-            winrate = int(winrate_tag.text.strip().replace("%", ""))
-            role = "UNKNOWN"
-
+        for champ in champ_rows[:5]:  # top 5 champs
+            name_tag = champ.select_one(".champion-name")
+            games_tag = champ.select_one(".played")
+            win_tag = champ.select_one(".winratio")
             role_tag = champ.select_one(".position")
-            if role_tag:
-                role = role_tag.text.strip().upper()
+
+            if name_tag and games_tag and win_tag:
+                name = name_tag.text.strip()
+                games = int(games_tag.text.strip().split()[0])
+                winrate = int(win_tag.text.strip().replace("%", ""))
+                role = role_tag.text.strip().upper() if role_tag else "UNKNOWN"
                 roles[role] += 1
 
-            cdata.append({
-                "name": name,
-                "games": games,
-                "winrate": winrate
-            })
+                cdata.append({
+                    "name": name,
+                    "games": games,
+                    "winrate": winrate
+                })
 
         if not cdata:
             continue
@@ -96,7 +90,3 @@ async def collect_data(summoner_names):
 
     players = sorted(players, key=lambda p: order.index(p["role"]) if p["role"] in order else 99)
     return {"players": players}
-
-if __name__ == "__main__":
-    import os
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
