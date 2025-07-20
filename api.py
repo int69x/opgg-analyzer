@@ -90,3 +90,6 @@ async def collect_data(summoner_names):
 
     players = sorted(players, key=lambda p: order.index(p["role"]) if p["role"] in order else 99)
     return {"players": players}
+if __name__ == "__main__":
+    import os
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
