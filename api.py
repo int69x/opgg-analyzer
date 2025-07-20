@@ -1,29 +1,34 @@
 import os
 import aiohttp
 import asyncio
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from dotenv import load_dotenv
 
-# Charger les variables depuis le fichier .env
+# Charger les variables d'environnement (.env)
 load_dotenv()
 
 RIOT_API_KEY = os.getenv("RIOT_API_KEY")
-REGION = "europe"    # Pour EUW, EUNE => "europe", NA => "americas"
-PLATFORM = "euw1"    # "euw1" pour Europe Ouest
+REGION = "europe"    # Pour EUW / EUNE
+PLATFORM = "euw1"    # EUW platform ID
 
 app = Flask(__name__)
 
-# Fonction utilitaire pour requêtes GET
+# Route racine → sert index.html
+@app.route("/")
+def index():
+    return send_from_directory('.', 'index.html')
+
+# Fonction utilitaire pour requêtes API Riot
 async def fetch_json(session, url, headers):
     async with session.get(url, headers=headers) as response:
         return await response.json()
 
-# Obtenir les infos d'un invocateur
+# Obtenir les infos du joueur par nom
 async def get_summoner_data(summoner_name, session, headers):
     url = f"https://{PLATFORM}.api.riotgames.com/lol/summoner/v4/summoners/by-name/{summoner_name}"
     return await fetch_json(session, url, headers)
 
-# Obtenir l'historique de match via PUUID
+# Récupérer les matchs par PUUID
 async def get_match_history(puuid, session, headers):
     match_ids_url = f"https://{REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/{puuid}/ids?start=0&count=10"
     match_ids = await fetch_json(session, match_ids_url, headers)
@@ -41,12 +46,12 @@ def analyser():
     data = request.json
     names = data.get("summoners", [])
     if not names or not isinstance(names, list):
-        return jsonify({"error": "Liste de noms invalide."}), 400
+        return jsonify({"error": "Merci de fournir une liste de pseudos."}), 400
 
     result = asyncio.run(process_summoners(names))
     return jsonify(result)
 
-# Traitement de tous les invocateurs
+# Traitement de chaque joueur
 async def process_summoners(summoner_names):
     headers = {"X-Riot-Token": RIOT_API_KEY}
     async with aiohttp.ClientSession() as session:
@@ -91,13 +96,6 @@ async def process_summoners(summoner_names):
 
         return {"players": team_data}
 
-# Lancer l'app en local ou sur Railway
+# Lancer le serveur (dev ou Railway)
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 3000)))
-
-from flask import send_from_directory
-
-@app.route("/")
-def index():
-    return send_from_directory('.', 'index.html')
-
