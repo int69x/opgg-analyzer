@@ -2,12 +2,11 @@
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Analyse Team - OP.GG via Riot API</title>
+  <title>Analyse OP.GG - Team ennemie</title>
   <style>
     body {
+      background-color: #0d0d12;
       font-family: Arial, sans-serif;
-      background: #0e1015;
       color: #fff;
       padding: 20px;
     }
@@ -16,83 +15,100 @@
     }
     textarea {
       width: 100%;
-      height: 80px;
+      height: 100px;
       padding: 10px;
-      font-size: 1em;
-      margin-bottom: 10px;
+      font-size: 14px;
+      border: none;
     }
     button {
       padding: 10px 20px;
-      font-size: 1em;
-      cursor: pointer;
       background-color: #00bfff;
-      border: none;
       color: white;
-      border-radius: 5px;
-    }
-    .results {
-      margin-top: 20px;
+      border: none;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 10px;
     }
     .player {
-      margin-bottom: 15px;
-      background: #1c1f26;
+      background-color: #1a1a1f;
       padding: 10px;
-      border-radius: 5px;
+      margin-top: 10px;
+      border-radius: 6px;
     }
-    .champion {
+    .champ {
       margin-left: 15px;
+      color: #ccc;
+    }
+    .ban {
+      color: #ff4d4d;
+      font-weight: bold;
+      margin-top: 5px;
     }
   </style>
 </head>
 <body>
   <h1>Analyse OP.GG - Team ennemie</h1>
-  <p>Colle les pseudos Riot (ex: <i>Durzat, Sabri, EnzoPATALO</i>)</p>
-
-  <textarea id="summonersInput" placeholder="Entrez jusqu'à 5 pseudos, séparés par des virgules..."></textarea>
-  <br />
+  <p>Colle les pseudos Riot (<em>ex: Durzat, Sabri, EnzoPATALO</em>)</p>
+  <textarea id="summoners" placeholder="Durzat, Sabri, EnzoPATALO, ..."></textarea><br />
   <button onclick="analyser()">Analyser</button>
 
-  <div class="results" id="results"></div>
+  <h2>Résultats</h2>
+  <div id="results"></div>
 
   <script>
     async function analyser() {
-      const input = document.getElementById("summonersInput").value;
-      const names = input.split(",").map(n => n.trim()).filter(Boolean).slice(0, 5);
-      if (names.length === 0) {
-        alert("Merci d’entrer au moins un pseudo !");
+      const input = document.getElementById("summoners").value;
+      const names = input.split(",").map(n => n.trim()).filter(n => n.length > 0);
+
+      if (!names.length) return alert("Ajoute au moins un pseudo Riot");
+
+      const res = await fetch("/analyser", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ summoners: names })
+      });
+
+      const data = await res.json();
+      const resultsDiv = document.getElementById("results");
+      resultsDiv.innerHTML = "";
+
+      if (!data.players) {
+        resultsDiv.innerHTML = "<p>❌ Erreur lors de l'analyse.</p>";
         return;
       }
 
-      document.getElementById("results").innerHTML = "<p>Analyse en cours...</p>";
+      data.players.forEach(player => {
+        const block = document.createElement("div");
+        block.className = "player";
 
-      try {
-        const res = await fetch("/analyser", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ summoners: names })
-        });
-        const data = await res.json();
+        const title = document.createElement("h3");
+        title.textContent = player.summoner;
+        block.appendChild(title);
 
-        if (data.error) {
-          document.getElementById("results").innerHTML = "<p style='color:red'>" + data.error + "</p>";
-          return;
+        if (player.error) {
+          const err = document.createElement("p");
+          err.textContent = "❌ " + player.error;
+          block.appendChild(err);
+        } else if (!player.champions || player.champions.length === 0) {
+          block.innerHTML += "<p>⚠️ Aucune donnée trouvée.</p>";
+        } else {
+          // Suggestion de ban = meilleur champion
+          const best = player.champions[0];
+          const ban = document.createElement("p");
+          ban.className = "ban";
+          ban.textContent = `➡️ Ban suggéré : ${best.champion} (${best.winrate}% winrate / ${best.games} games)`;
+          block.appendChild(ban);
+
+          player.champions.forEach(champ => {
+            const line = document.createElement("div");
+            line.className = "champ";
+            line.textContent = `• ${champ.champion} - ${champ.games} games, ${champ.winrate}% winrate`;
+            block.appendChild(line);
+          });
         }
 
-        const container = document.getElementById("results");
-        container.innerHTML = "<h2>Résultats</h2>";
-        data.players.forEach(player => {
-          const block = document.createElement("div");
-          block.className = "player";
-          block.innerHTML = `<strong>${player.summoner}</strong><br>`;
-          player.champions.forEach(champ => {
-            block.innerHTML += `<div class="champion">🛡️ ${champ.champion} - ${champ.games} games - ${champ.winrate}% WR</div>`;
-          });
-          container.appendChild(block);
-        });
-      } catch (err) {
-        console.error(err);
-        document.getElementById("results").innerHTML = "<p style='color:red'>Erreur lors de l’analyse.</p>";
-      }
+        resultsDiv.appendChild(block);
+      });
     }
   </script>
 </body>
